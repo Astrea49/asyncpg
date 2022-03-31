@@ -9,9 +9,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-20.04]
-        cibw_python: ["cp310-*"]
-        cibw_arch: ["aarch64"]
+        os: [ubuntu-latest]
+        python-version: ["3.10"]
+        arch: ["aarch64"]
 
     steps:
       - uses: actions/checkout@v2
@@ -22,23 +22,38 @@ jobs:
             python-version: '3.10'
             
       - name: Set up QEMU
-        if: runner.os == 'Linux'
+        if: matrix.arch == 'aarch64'
         uses: docker/setup-qemu-action@v1
-        with:
-          platforms: all
-      
-      - name: e
-        run: python -m pip install -U setuptools wheel
 
-      - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==2.3.1
+      - name: Install Python Deps
+        run: python -m pip install --upgrade setuptools pip wheel
 
-      - name: Build wheels
-        run: python -m cibuildwheel --output-dir wheelhouse
-        # to supply options, put them in 'env', like:
-        # env:
-        #   CIBW_SOME_OPTION: value
+      - name: Build Wheels (linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          case "${ARCH}" in
+            x86_64)
+              mlimg=manylinux1_x86_64
+              ;;
+            aarch64)
+              mlimg=manylinux2014_aarch64
+              ;;
+            *)
+              echo "Unsupported wheel arch: ${ARCH}" >&2
+              exit 1
+              ;;
+          esac
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}":/github/workspace:rw \
+            --workdir=/github/workspace \
+            -e GITHUB_WORKSPACE=/github/workspace \
+            -e PYTHON_VERSION="${PYTHON_VERSION}" \
+            --entrypoint=/github/workspace/.github/workflows/build-manylinux-wheels.sh \
+            quay.io/pypa/${mlimg}
 
       - uses: actions/upload-artifact@v2
         with:
-          path: ./wheelhouse/*.whl
+          path: ./dist/*.whl
